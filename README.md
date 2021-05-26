@@ -21,9 +21,9 @@ GMs are often retired players, who rely more on subjective reports from a vast n
 
 |—	README.md
 
-|	  |—	Data
+|	    |—	Data
 
-|	  |—	Plots_and_figures
+|	    |—	Plots_and_figures
 
-|	  |—	Code
+|	    |—	Code
 
