@@ -18,8 +18,12 @@ GMs are often retired players, who rely more on subjective reports from a vast n
 # Repository structure
 
 |—	Written report
+
 |—	README.md
+
 |	|—	Data
+
 |	|—	Plots_and_figures
+
 |	|—	Code
 
