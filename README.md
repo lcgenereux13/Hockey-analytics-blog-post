@@ -10,7 +10,7 @@ As avid sports fans, we have always been intrigued by the opaque world of player
 
 GMs are often retired players, who rely more on subjective reports from a vast network of scouts than on data to make contractual decisions, creating biased decisions. Acknowledging that GMs have biases that lead them to paying salary premiums to players who might not be the highest performers on their teams, we wondered: are these premiums worth it? To answer this question we set out on a mission to determine each NHL players' __fair salary, or what each player should be paid based on his contribution to his team's success.__ In doing so, we:
 
-* Built a tool to evaluate each player's performance based on team contribution metrics
+* Built a tool to evaluate each player's offensive and defensive contribution to his team
 * Clustered players based on said metrics and calculated within-cluster average salaries for comparable players
 * Developed a framework to assess General Managers' effectiveness based on tendencies to over/under pay players relative to their contribution
 
