@@ -1,0 +1,2135 @@
+---
+title: "Determining fair NHL player salaries and assessing General Manager effectiveness through novel player evaluation framework"
+author: "Louis-Charles Généreux and Allen Xu"
+date: "May 2021"
+output:
+  html_document:
+    df_print: paged
+  pdf_document:
+    fig_caption: yes
+    highlight: tango
+    fig_width: 6
+    fig_height: 4.5
+---
+
+
+# Problem definition
+
+As avid sports fans, we have always been intrigued by the opaque world of player evaluation. In sports like ice-hockey, where teams' salary spending is capped, signing the right players, at the right price is essential to attaining team success. With most National Hockey League (NHL) teams spending close to all the money available under the salary cap, a team's competitive edge comes partly from its ability to identify "under-priced" players. General Managers' (GMs) responsibility is to build rosters of high-performing, fairly-paid players to maximize their team's chances of success. In 2021, the NHL salary cap is $81.5M, meaning that no team can see its total player compensation exceeding this figure; see the NHL's statement (https://www.nhl.com/news/nhl-salary-cap-to-remain-at-815-million/c-317372082) and a brief explanation of the cap's history (https://puckpedia.com/salary-cap/1-what-salary-cap).
+
+Because hockey is a non-static sport, with continuous flow, statistical analysis is not as straightforward as it is for baseball (where there are binary outcomes for each play). GMs are often retired players, who rely more on subjective reports from a vast network of scouts than on data to make contractual decisions, creating biased decisions. Research by Lanoue (2015) at the University of Windsor  (http://web2.uwindsor.ca/economics/RePEc/wis/pdf/1502.pdf) has identified player attributes or variables that translate to salary premiums, with all other factors being held constant. For example being a past Stanley Cup winner typically translates to a 19% salary premium, while being an enforcer (a player who engages in on-ice fist fights) leads to a 15% salary premium; these highly-priced attributes might not actually translate to team success.
+
+Acknowledging that GMs have biases that lead them to paying salary premiums to players who might not be the highest performers on their teams, we wondered: are these premiums worth it? To answer this question we set out on a mission to __determine each NHL players' fair salary, or what each player should be paid based on his contribution to his team's success.__ In doing so, we:
+
+* Built a tool to evaluate each player's performance based on team contribution metrics
+* Clustered players based on said metrics and calculated within-cluster average salaries for comparable players
+* Developed a framework to assess General Managers' effectiveness based on tendencies to over/under pay players relative to their contribution
+
+Before discussing our approach and findings in more details, we recommend that readers not familiar with the game of ice hockey watch the following short video (https://www.youtube.com/watch?v=nv2FUnHceqU&ab_channel=NinhLyNinhLy). It succinctly explains the rules of the game while also showing game footage.
+
+# Sources of inspiration for this project
+
+Sports Analytics have become a hot topic in the last decades, especially after the public witnessed the success of analytics departments in professional sports, highlighted by the movie Moneyball (based on Michael Lewis' best-seller). As previously mentioned, hockey is a continuous sport, making it more difficult to model statistically. However, many researchers and fans have published papers on the sport. While our research may not be fully exhaustive, we are fascinated by the work published by Ryder (2012), Gramacy (2013) and Lanoue (2015) and by statistics released on analytics websites such as Evolving Hockey (https://evolving-hockey.com/).  Below is a short summary of their findings and a discussion on how we intend to build on some of their work.
+
+Historically, one of the most common metrics used in the field of hockey player evaluation has been __plus-minus__(the absolute goal difference between goals for and against while a player is on the ice). While this metric is simple and does not require granular play-by-play data to be computed, Gramacy (2013) points out that this traditional evaluation metric is largely dependent on the performance and strength of the whole team instead of individual players. The same can be said of other shot-based metrics such as Fenwick and Corsi (https://thehockeywriters.com/corsi-fenwick-stats-what-are-they/).
+
+Ryder (2012) proposed the idea of marginal contribution, or crediting each goal and assist for a team to individual players with different weights based on factors like points produced, plus-minus, the strength of the opposing team and play situations. We believe this paper to be a major breakthrough in the hockey analytics space: Ryder attributed shares of each of a team's goals (for and against) to players on the team, allowing his readers to compare offensive contribution with defensive liability. More recently, websites like Evolving Hockey have created some buzz in the hockey community with the publication of their the Goal Above Replacement (GAR) metric, which aims to measure whether a player performs above "replacement level".
+
+Beyond the evaluation of player contribution, another common theme in previous research is to determine whether players are economically efficient based on their contracts. Lanoue (2015) studies the mutual influence between winning Stanley Cup and values of the contract. Gramacy (2013) clusters players based on their position and create a probability density function based of performance on each salary bracket. 
+
+In this paper, we aim to highlight both offensive and defensive prowess of each player, but with more granularity than Ryder. Rather than base our analyses on season-long aggregated goals and assists data like Ryder (who computed metrics based on one row of summary statistics per player), we will build our metrics based on shot attempts and with many more nuances such as shot location, difficulty and context (thanks to the availability of play by play statistics). Building metrics using shot attempts rather than goals also allows us to compute expected goals, which can be compared with actual goals scored. This will allow us to explore the notion of "clutch" play or conversion of opportunities in this paper. We will then perform player clustering, taking into more dimensions than Gramacy, such as career stage, position, playing style and physicality of the players. Finally, we will evaluate GMs' dealmaking abilities, which has not yet been attempted in quantitative fashion.
+
+
+\newpage
+
+# Analysis
+
+## Development of player evaluation metrics
+
+To evaluate players' performance, we analyzed each scoring opportunity of the 2019-2020 and computed new player evaluation metrics, taking shot difficulty and play situation into account. The metrics we developed provide more context into player contribution than simple statistics such as scoring related metrics (e.g., goals or assists produced, plus-minus), which are partially driven by luck and overall team strength. Compiling the number of opportunities created and assessing their likelihood of conversion to goals requires play-by-play breakdowns of games; more specifically we need to know which players were on the ice for each shot taken and what was the location of the shot relative to the opposing team's net.
+
+We obtained our detailed game data from the NHL's official game-sheets, which report ~300 distinct plays per game (face-offs, shots, blocked shots, hits, goals, penalties). The game-sheets contain a list of all players present on the ice for every play, in addition to distance to goal for every shot or goal. In __figure 1__, we show an official game sheet and the extracted data in pandas format after scraping. Play by play data for this project consists of:
+
+* Play description (shot, goal, face-off, shot block, play stop)
+* Distance from net, X and Y coordinates of a play
+* Strength (even strength: both teams have 5 players on the ice, power-play/penalty-kill: a team has a 1 man advantage due to a penalty)
+* Name of all players on the ice for a play
+
+While all of these fields can be extracted from scraping of game-sheets (as displayed in figure 1), they can also be extracted with a bit of data cleansing using the various tables in the following data set (https://www.kaggle.com/martinellis/nhl-game-data).
+
+\  
+
+__Figure 1:__ Example of game-sheet data leveraged for this project
+
+```{r Load photo output 1, out.height = "420px", out.width='1000px', echo = FALSE}
+
+###############################################################################
+# Loading Figures (converted from PDF to PNG)
+###############################################################################
+
+knitr::include_graphics("Figures pdf and PNG/Take 1/Fig 1.2 pdf-1.png")
+
+```
+\  
+\  
+
+With data on each shot taken during the 2019-2020 NHL campaign, we computed the __expected % conversion of shots to goals, based on shot location and play situation__. More specifically, we split the offensive zone in three zones:
+
+* Zone 1: Net proximity
+* Zone 2: Slot (good angle to net and reasonable distance to net)
+* Zone 3: All other shots taken
+
+We then segmented all shots taken based on three possible game situations:
+
+* Even Strength: Both teams are playing with equal numbers of players
+* Power-Play: The attacking team (the team taking the shot) has a one or more men advantage thanks to penalties taken by opposing players
+* Short-Handed: The attacking team (the team taking the shot) is short one or more men due to a penalty taken by a team mate
+
+In __Figure 2__, we present 4 figures:
+
+* On the top left, we show a heat map of shots per square foot in the NHL offensive zone during the 2019-2020 season. We see heavy shot volumes around the net and a reverse triangle (in zones where the shot angle to the net is advantageous)
+* On the top right, we show a heat map of goals scored per square foot in the NHL offensive zone during the 2019-2020 season. We see heavy goal volume in close proximity to the net, but minimal goals from elsewhere (indicating that conversion rates is not equal across the ice)
+* On the bottom left, we split the NHL ice in 3 zones, which we will use for our analysis (net proximity, slot, from distance)
+* On the bottom right, we compute the conversion rate of shots to goals based on shot zone (from the bottom left figure) and the game situation (even strength, power-play, short-handed)
+
+These analyses confirmed general knowledge that:
+
+* (1) the conversion rate of shots to goals is generally higher as distance to goal is reduced and 
+* (2) the conversion rate of shots from a given zone is higher in power-play situations
+
+\  
+
+__Figure 2:__ Representation of shot zones on NHL ice and conversion percentage of shots to goals per zone and situation
+
+```{r Load photo output 2, out.height = "1219px", out.width='1000px', echo = FALSE}
+
+knitr::include_graphics("Figures pdf and PNG/Take 1/Fig 2.2-1.png")
+
+```
+
+\  
+\  
+
+
+To compute player specific metrics, we first summarized all shots taken and all shots given to the opposing team while a player is on the ice, for each player-game combination during the 2019-2020 season (resulting in 40,000+ player-game entries). Based on this information and on the shot conversion rates displayed in figure 2, we began computing a set of new metrics:
+
+__(1) Expected goals for and against, generated while player is on the ice:__
+
+* Expected goals contributed to: the summation of (total number of shots taken by team while player is on the ice per zone-situation * shot conversion rate)
+* Expected goals given: the summation of (total number of shots taken by the opposing team while player is on the ice per zone-situation * shot conversion rate)
+
+These metrics were then normalized per 60 minutes played for each player, allowing for "apples to apples" comparison across players. For interpretation purposes, it is expcted that players with high "expected goals contributed to" generate high number of scoring chances for their teams, while players with high "expected goals given" are defensive liabilities (they give up many scoring chances to opponents).
+
+\  
+
+__(2) Offensive contribution to defensive liability ratio:__
+
+* Expected goals contributed to / Expected goals given: the ratio of "expected goals contributed to" and "expected goals given"
+
+A number above 1 indicates that the player generates more offensive chances than he gives up (positive contributor to the team).
+
+\  
+
+__(3) Player-specific ability to convert chances to points:__
+
+* Clutch factor: Actual points produced (goals + assists) divided by expected goals contributed to
+
+A high number can indicate “clutch” play, an ability to perform under pressure, or pure luck (leading to higher conversion). A low "clutch factor" indicates that a player converts opportunities to points at a lower rate than peers, all other factors considered.
+
+\  
+
+We believe these metrics offer a much more telling story on actual player contribution than traditional NHL statistics. Traditional metrics, which are purely outcome driven are influenced by luck, team strength and do not factor in play difficulty or situational details. On the other hand, our new metrics allow us to see discrepancies between expected and actual offensive production, but also gain insight into a player’s defensive liability (which traditionally go un-measured and un-reported). In __figure 3__, we provide a definition and interpretation for these new metrics and show sample player profiles.
+
+\  
+
+
+__Figure 3:__ Details on new player evaluation metrics and example of player profiles produced by the tool
+
+```{r Load photo output 3, out.height = "396px", out.width='1000px', echo = FALSE}
+
+knitr::include_graphics("Figures pdf and PNG/Take 1/Fig 3.2 pdf-1.png")
+
+```
+
+\  
+\  
+
+
+To highlight the potential value of our new player evaluation metrics to NHL executives, we studied the profile of two 2019-2020 standouts who both were elite point-scorers, but had completely different "clutch factors". For instance __Bo Horvat__, whose calculated "expected total goals contributed to" was 81.5, produced 53 points (22 goals and 31 assists). __Mika Zibanejad__, whose "expected goals contributed" was 69.2, produced 75 points (41 goals and 34 assists). Full player profiles for these two players are provided in __figure 4__.
+
+While fans and executives might jump to conclusions that Zibanejad is far superior to Horvat based on traditional statistics (22 more points produced over the season), the use of "expected goals contributed to" and "clutch factor" tells a more complete story.
+
+Horvat managed to produce a first-tier offensive output with 53 points while being on the NHL's low end of the clutch factor range (one might say that he bad luck). Zibanejad, on the other hand was among the players with the highest "clutch factor" in the whole league, indicating that he certainly benefited from lucky bounces throughout the campaign. On the long run, we suspect that luck might display some mean-reverting behavior.
+
+\  
+
+
+__Figure 4:__ Illustration of "clutch factor's" importance in understanding player performance
+
+```{r Load photo output 4, out.height = "303px", out.width='1000px', echo = FALSE}
+
+knitr::include_graphics("Figures pdf and PNG/Take 1/Fig 4 pdf-1.png")
+
+```
+
+\newpage
+
+## Player clustering and evaluation of fair salary
+
+After having developed new metrics to compare players more fairly, we set out to cluster players in order to find "fair salaries" within each cluster. The dimensions used to cluster players were the following:
+
+* Net contribution per 60 minutes: the difference between goals contributed per 60 minutes and goals given per 60 minutes
+* Offensive skills: based on scaled expected goals contributed per 60 minutes
+* Physicality: based on scaled number of hits during the full season
+* Position: forward or defense-man
+* Career stage: veteran player (28 and older) or young player (27 and younger)
+
+In __figure 5__, we illustrate the full clustering and present some notable NHL stars who fit in each cluster.
+
+At the highest level, all 671 regular NHL players from the 2019-2020 season can be split into those whose net contribution is positive (those who generate more scoring chances than they give up) or those whose net contribution is negative. We can then split these two groups again based on their offensive skills (those who generate above average offensive chances per 60 minutes played, versus those who don't). Interestingly, it is possible for players to be offensive-threats but overall liabilities for their teams. It is also possible to not be offensive threats (i.e., produce less offense per 60 minutes than average NHLers) but be net positive contributors to the team.
+
+For example, some high-end offensively-skilled players such as Sam Bennett or Bobby Ryan (negative net contribution players, who are offensive threats) generate more scoring chances per 60 minutes than their peers, yet are overall negative contributors to their teams... the quality chances they give up to opponents outweigh the scoring chances they generate! On the flip side, veterans such as Tyler Bozak and Derek Stepan (positive net contribution, all-rounders who do not figure within the league's scoring elite) are not flashy offensively but are highly effective; they give up less chances to opponents than they produce for their teams.
+
+Running this clustering exercise allows us to identify value-adding players (positive net contributors) and the true elite of the NHL (positive net contributors, with high offensive skills: those who create high numbers of offensive opportunities). __This clustering was not based on traditional output-based statistics, but rather on the quality of chances created and on the overall net contribution of players (taking into account the defensive aspect of the game)__. To determine fair salaries within a cluster, we make the assumption that based on their high similarities in performance metrics, players who are within a given cluster are comparable. We averaged the salary of all players within a cluster to estimate the "cluster fair salary", for each player archetype. We see a few trends:
+
+* For equivalent profiles (similar net contribution, offensive skills, physicality and position), veterans tend to be paid more than younger players. This is partly due to the fact that NHL entry level salaries are capped for the first 3 years of players' careers).
+* On average, positive net-contribution players are better remunerated than negative net-contribution players.
+* Offensive threat, positive net-contribution players (the NHL's real elite) are the highest remunerated.
+
+\  
+
+__Figure 5:__ Clustering of NHL players and evaluation of fair-salary within each cluster
+
+```{r Load photo output 5, out.height = "563px", out.width='1000px', echo = FALSE}
+
+knitr::include_graphics("Figures pdf and PNG/Take 1/Fig 5 pdf-1.png")
+
+```
+
+\newpage
+
+## Assessment of General Manager effectiveness
+
+After having computed each player's fair salary based on clustering, we set out to evaluate GM effectiveness. Our objective was to determine __whether or not a GM has a tendency to over or under pay his players (based on their fair salary).__
+
+The first step to running this analysis is assigning all NHL players to their respective teams and aggregated archetypes as displayed below in __figure 6__. All players under contract by a given team and GM are classified based on their cluster, and are represented by a dot colored based on the comparison of their actual salary to their fair salary.
+
+\  
+
+__Figure 6:__ Count of players per aggregated archetype, by team
+
+```{r Load photo output 6, out.height = "1040px", out.width='1000px', echo = FALSE}
+
+knitr::include_graphics("Figures pdf and PNG/Take 1/Fig 6 pdf-1.png")
+
+```
+
+\  
+\  
+
+After assigning players to their teams and simplified cluster, we summed up the difference between total salaries paid and total fair-salaries for a given team and simplified cluster We summed the over/under-spend amount across all clusters to determine the team-wide amount saved or over-spent, relative to fair salaries. The amount over/under-spent by a team for a given archetype is displayed in __figure 7__
+
+During the 2019-2020 season, the Minnesota Wild franchise overpaid its players by 13.7M relative to their players' performance while the Vegas Golden Knights under-paid their players by 14.2M
+
+\  
+
+__Figure 7:__ Analysis of fair salaries versus actual salaries paid, by team
+
+```{r Load photo output 7, out.height = "773px", out.width='1000px', echo = FALSE}
+
+knitr::include_graphics("Figures pdf and PNG/Take 1/Fig 7 pdf-1.png")
+
+```
+
+\  
+\  
+
+
+In closing, we mapped each NHL team based on two key GM characteristics:
+
+* To what extent does the GM spend the money available to him (how much money below the salary cap is left at the end of the season)?
+* How strong is the GM's deal making ability (does he tend to over/under spend on player salaries versus their fair salaries)?
+
+In doing so, we discovered that signing advantageous contracts is not enough to guarantee success in the NHL; winning GMs sign better contract deals than their peers, but also spend more in absolute terms. GMs who have constructed successful teams in 2019-2020 have spent close to all money available under the salary cap ($81.5M maximum), resulting in very deep teams. For example in __figure 8__, we see that:
+
+* 8 of the top 10 teams in the 2019-2020 season spent all the money available under the salary cap. 
+* 7 of the top 10 teams displayed both __high spending on salaries__ combined with __fair contracts (paying players what they should be paid)__.
+
+\  
+
+__Figure 8:__ Mapping of NHL teams (including end of season rank) based on GM decisions
+
+```{r Load photo output 8, out.height = "864px", out.width='1000px', echo = FALSE}
+
+knitr::include_graphics("Figures pdf and PNG/Take 1/Fig 8 pdf-1.png")
+
+```
+
+
+\newpage
+
+# Conclusion and possible future improvements
+
+As we discussed in our short literature review, many have ventured into advanced player evaluation and forecasting of fair salaries for NHL players. We believe that we have made new contributions to the hockey analytics space through our novel player evaluation framework. More specifically:
+
+* Our entire analysis is based on the generation of player profiles based on __expected contribution per unit of ice-time, rather than on player output__ (points produced or metrics like plus/minus). This allows us to compare and evaluate players fairly, irrespective of their ice-time, their team's strength or luck. 
+* We computed "clutch" factors for each player, allowing us to compare true offensive production to expected production (highlighting both luck and the ability to perform under pressure).
+* Our clustering of 600+ NHL players into clusters or archetypes (which takes into account offense, defense and physicality) __introduces the notion of net contribution to the team__ (whether or not a player generates more offensive opportunities than he gives up to the opposing team). Such knowledge (as opposed to just evaluating offensive results) could allow GMs to make data driven claims like "the following players are offensive-threats but overall liabilities for our team".
+* Our salary predictions are based on expected contribution metrics rather than on regressions using non-contribution related metrics. Some statisticians have built predictive regression models, trained on historical contract data. These reflect manager biases and are not necessarily a reflection of player performance. Our approach on the other end is based solely on comparison of players with similar performance metrics.
+
+We believe that no player clustering or General Manager evaluation projects have been released to date. The release of player profiles and clusters could be valuable to curious fans, but especially to players' agents and GMs, who are trying to understand the "true" value of their players. Moreover, the release of GM effectiveness metrics (the evaluation of over/under spending relative to player fair salaries) could be very valuable to franchise owners, trying to assess whether or not their GMs are making sound investments of their money.
+
+
+We hope to continue working on this project in the near future, with a particular focus on:
+
+* Dynamically collecting player data (to update player profiles and clusters monthly rather than annually).
+* Taking more game situation scenarios into account when producing expected contribution metrics (e.g., a shot taken in zone 1, in a power-play situation, during the final minutes of a tied game might in reality carry more weight than the same shot in the first period of the game).
+* Because one season might be a short period to assess player or GM performance, metrics and analyses developed in this paper could be observed over 3-5 year time spans to confirm early hypotheses regarding relative performance.
+
+
+\newpage
+
+# References
+
+Ryder, A. (2012, March 15). Player Contribution. Hockey Analytics. http://hockeyanalytics.com/2004/03/player-contribution/.
+
+Gramacy, R., Jensen, S., & Taddy, M. (2013). Estimating player contribution in hockey with regularized logistic regression. Journal of Quantitative Analysis in Sports, 9(1), 97–111. https://doi.org/10.1515/jqas-2012-0001
+
+Derek Lanoue. (2015). "Does it pay to win the Stanley Cup?," Working Papers 1502, University of Windsor, Department of Economics. http://web2.uwindsor.ca/economics/RePEc/wis/pdf/1502.pdf
+
+
+# Links to data sources
+
+__Sample NHL game-sheet:__ http://www.nhl.com/scores/htmlreports/20192020/PL020227.HTM
+
+__Kaggle NHL dataset:__ https://www.kaggle.com/martinellis/nhl-game-data
+
+__NHL Salary cap details:__ https://www.capfriendly.com/archive
+
+__Player by player salary details:__ https://www.capfriendly.com/teams/coyotes/cap-tracker/2020
+
+
+\newpage
+
+## Code
+
+```{r setup1, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,comment="  ")
+
+# tinytex::reinstall_tinytex()
+
+# Load packages
+library(psych)
+library(readr)
+library(corrplot)
+library(car)
+library(caret)
+library(glmnet)
+library(cluster)
+library(mclust)
+library(dplyr)
+
+```
+
+
+```{r setup, include=FALSE}
+
+###############################################################################
+# LOAD PACKAGES
+###############################################################################
+
+
+library(readr)
+library(dplyr)
+library(data.table)
+library(tidyverse)
+library(readxl)
+library(tidyr)
+library(ggplot2)
+
+```
+
+
+```{r load data, message = FALSE}
+
+###############################################################################
+# LOAD DATA and KEEP SHOTS ONLY
+###############################################################################
+
+# Load data
+aggregated_2019 <- read_csv("Data/aggregated_play_by_play_2019.csv")
+
+# Determine play type for the team recording the play
+aggregated_2019$team_for_play_type <- 
+  ifelse(aggregated_2019$team_id_for < aggregated_2019$team_id_against,
+                                    aggregated_2019$play_type_lower_team_id,
+                                    aggregated_2019$play_type_higher_team_id)
+
+# Select only shots and goals
+shots_2019 <- aggregated_2019[aggregated_2019$event =="Shot"|
+                              aggregated_2019$event =="Goal",]
+shots_2019 <- shots_2019[,-c(1)]
+
+
+```
+
+
+
+```{r Data cleaning}
+
+###############################################################################
+# DATA CLEANING, removing empty net goals
+###############################################################################
+
+# Determine if the goal was scored in an empty net 
+empty_net_goal <- NA
+
+for (i in 1: nrow(shots_2019)){
+  if(shots_2019$event[i] == "Goal" & 
+     shots_2019$team_id_for[i] < shots_2019$team_id_against[i] &
+     is.na(shots_2019$Goalie_high_id[i])) {
+    empty_net_goal[i] <- 1
+  }
+  else if(shots_2019$event[i] == "Goal" & 
+     shots_2019$team_id_for[i] > shots_2019$team_id_against[i] &
+     is.na(shots_2019$Goalie_low_id[i])) {
+    empty_net_goal[i] <- 1
+  }
+  else {
+    empty_net_goal[i] <- 0
+  }
+}
+
+shots_2019$empty_net <- empty_net_goal
+
+# Remove empty net goals - remove if the scoring team faced no goaltender  
+shots_2019 <- shots_2019[shots_2019$empty_net == 0,]
+
+# Calculate absolute value of shot coordinates
+shots_2019$abs_x <- abs(shots_2019$x)
+shots_2019$adj_y <- ifelse(shots_2019$x > 0, -shots_2019$y, shots_2019$y)
+
+# Break out goals data - as a subset of the shots data
+goals_2019 <- shots_2019[shots_2019$event == "Goal",]
+
+```
+
+
+```{r Summarizing location data, warning=FALSE, message=FALSE}
+
+###############################################################################
+# Summarizing shot location data
+###############################################################################
+
+# Summarize shots data
+shots_summary <- shots_2019 %>%
+  group_by(abs_x, adj_y) %>%
+  summarise(shot_count =  n())
+
+# Summarize goals data
+goals_summary <- goals_2019 %>%
+  group_by(abs_x, adj_y) %>%
+  summarise(goal_count =  n())
+
+# Adding unique x,y coordinate key to merge both summaries
+shots_summary$unique_location <- paste(shots_summary$abs_x, ",", shots_summary$adj_y)
+goals_summary$unique_location <- paste(goals_summary$abs_x, ",", goals_summary$adj_y)
+
+
+# Merging shots and goals summary
+merged_summary_s_g <- merge(shots_summary, goals_summary, 
+                            by = c("unique_location", "unique_location"), all.x = TRUE)
+merged_summary_s_g <- merged_summary_s_g[,c(1:4,7)] # removing redundant columns
+
+colnames(merged_summary_s_g) <- c("unique_location", "abs_x", "adj_y", 
+                                  "shot_count", "goal_count")
+
+
+# Calculating shot percentage
+merged_summary_s_g$shot_percentage <- ifelse(is.na(merged_summary_s_g$goal_count /
+                                                  merged_summary_s_g$shot_count),0,
+                                             merged_summary_s_g$goal_count / 
+                                               merged_summary_s_g$shot_count)
+         
+    
+merged_summary_s_g$shot_pct_adj <- ifelse(merged_summary_s_g$shot_percentage >= .2 & 
+                                            merged_summary_s_g$goal_count <=4, 0,
+                                          merged_summary_s_g$shot_percentage)
+                                
+
+```
+
+
+
+```{r Visualize shot frequency and goal rate}
+
+###############################################################################
+# Shots and goals heatmap
+###############################################################################
+
+# Heatmap for shots
+  # ggplot(merged_summary_s_g, aes(abs_x, adj_y, fill= shot_count)) + 
+    # geom_tile() + scale_fill_gradient(low="white", high="blue") + 
+    # ggtitle("Shot count") + xlab("X position (0 = center ice; 89 = goal line)") + 
+    # ylab("Y position") + theme_classic()
+
+# Heatmap for goal % - ADJ
+  # ggplot(merged_summary_s_g, aes(abs_x, adj_y, fill= shot_pct_adj)) + 
+    # geom_tile() + scale_fill_gradient(low="white", high="blue") + 
+    # ggtitle("Goal percentage")  + xlab("X position (0 = center ice; 89 = goal line)") + 
+    # ylab("Y position") + theme_classic()
+  
+  
+# Heatmap for goals
+  # merged_summary_s_g$goal_count <- ifelse(is.na(merged_summary_s_g$goal_count),
+                                          # 0, merged_summary_s_g$goal_count) 
+  # ggplot(merged_summary_s_g, aes(abs_x, adj_y, fill= goal_count)) + 
+    # geom_tile() + scale_fill_gradient(low="white", high="red") + 
+    # ggtitle("Goal percentage")  + 
+    # xlab("X position (0 = center ice; 89 = goal line)") + 
+    # ylab("Y position") + theme_classic()
+
+# Key dimensions: 
+# * blue line = 25
+# * goal line = 89
+# * face-off circle = 22 feet before goal line (at 89 on the x axis), 
+    # 21 feet from center of line (on y axis)
+# * radius of face-off circle = 15
+
+# Different sources for NHL rink dimensions: 
+# * https://www.dimensions.com/element/ice-hockey-rink-international
+# * http://hockeyanalytics.com/Research_files/SQ-RS0910-Krzywicki.pdf
+
+```
+
+
+
+```{r shot classification, message=FALSE}
+
+###############################################################################
+# Assigning shots to zone based on X-Y coordinates
+###############################################################################
+
+shot_zone <- NULL
+x_value_of_top_of_crease_zone <- 80
+x_value_of_goal_line <- 89
+
+for (i in 1:nrow(merged_summary_s_g)){
+  # Shots around the crease are classified first
+      # For other shots, determine if they fall in the area surrounding the net - 
+          # using faceoff circles as a guide
+      # Determine ratio of sides formed by the right triangle X/Y
+  x_side <- x_value_of_goal_line - merged_summary_s_g$abs_x[i]  # 89 is center-ice
+  y_side <- abs(merged_summary_s_g$adj_y[i])
+  sides_ratio <- y_side/x_side
+  threshold_ratio <- 21/22
+  
+  # Crease shots
+  if (abs(merged_summary_s_g$adj_y[i]) <=6 &
+      merged_summary_s_g$abs_x[i] > x_value_of_top_of_crease_zone & 
+      merged_summary_s_g$abs_x[i] <= x_value_of_goal_line){
+    shot_zone[i] <- 1
+
+  }
+  else if (merged_summary_s_g$abs_x[i] > (x_value_of_goal_line - 22 - 7.5 ) & 
+           # - 7.5 to get to top of circle
+           merged_summary_s_g$abs_x[i] <= x_value_of_top_of_crease_zone &
+           sides_ratio <= threshold_ratio ){
+        shot_zone[i] <- 2
+  }
+  else {
+        shot_zone[i] <- 3
+  }
+}
+
+# Add column to shots dataframe
+merged_summary_s_g$shot_zone <- shot_zone
+
+# Calculate goal percentage per zone
+goal_percent_summary <- merged_summary_s_g %>%
+  group_by(shot_zone) %>%
+  summarise(shot_count =  sum(shot_count), goal_count =  sum(goal_count, na.rm = TRUE))
+goal_percent_summary$percent <- goal_percent_summary$goal_count / goal_percent_summary$shot_count
+
+
+```
+
+
+```{r Summarize by team, message=FALSE}
+
+###############################################################################
+# Summarizing shots taken and goals per team, per area/phase of play
+###############################################################################
+
+# Create a new data frame containing shots, goals, blocked shots
+shots_and_blocks_2019 <- aggregated_2019[aggregated_2019$event =="Shot"|
+                                          aggregated_2019$event =="Goal" |
+                                          aggregated_2019$event =="Blocked Shot" |
+                                          aggregated_2019$event =="Missed Shot",]
+
+# Eliminate empty net goals
+    # Determine if the goal was scored in an empty net 
+    empty_net_goal <- NA
+    
+    for (i in 1: nrow(shots_and_blocks_2019)){
+      if(shots_and_blocks_2019$event[i] == "Goal" & 
+         shots_and_blocks_2019$team_id_for[i] < shots_and_blocks_2019$team_id_against[i] &
+         is.na(shots_and_blocks_2019$Goalie_high_id[i])) {
+        empty_net_goal[i] <- 1
+      }
+      else if(shots_and_blocks_2019$event[i] == "Goal" & 
+         shots_and_blocks_2019$team_id_for[i] > shots_and_blocks_2019$team_id_against[i] &
+         is.na(shots_and_blocks_2019$Goalie_low_id[i])) {
+        empty_net_goal[i] <- 1
+      }
+      else {
+        empty_net_goal[i] <- 0
+      }
+    }
+    
+    shots_and_blocks_2019$empty_net <- empty_net_goal
+    
+    # Remove empty net goals - remove if the scoring team faced no goaltender  
+    shots_and_blocks_2019 <- shots_and_blocks_2019[shots_and_blocks_2019$empty_net == 0,]
+
+    # Calculate absolute value of shot coordinates
+    shots_and_blocks_2019$abs_x <- abs(shots_and_blocks_2019$x)
+    shots_and_blocks_2019$adj_y <- ifelse(shots_and_blocks_2019$x > 0,
+                                          -shots_and_blocks_2019$y, 
+                                          shots_and_blocks_2019$y)
+
+####  Allot shots to zones
+    shot_zone <- NULL
+    x_value_of_top_of_crease_zone <- 80
+    x_value_of_goal_line <- 89
+    
+    for (i in 1:nrow(shots_and_blocks_2019)){
+      # Shots around the crease are classified first
+          # For other shots, determine if they fall in the area surrounding the net 
+              #- using faceoff circles as a guide
+          # Determine ratio of sides formed by the right triangle X/Y
+      x_side <- x_value_of_goal_line - shots_and_blocks_2019$abs_x[i]  # 89 is center-ice
+      y_side <- abs(shots_and_blocks_2019$adj_y[i])
+      sides_ratio <- y_side/x_side
+      threshold_ratio <- 21/22
+      
+      # Crease shots
+      if (abs(shots_and_blocks_2019$adj_y[i]) <=6 &
+          shots_and_blocks_2019$abs_x[i] > x_value_of_top_of_crease_zone & 
+          shots_and_blocks_2019$abs_x[i] <= x_value_of_goal_line){
+        shot_zone[i] <- 1
+    
+      }
+      else if (shots_and_blocks_2019$abs_x[i] > (x_value_of_goal_line - 22 - 7.5 ) & 
+               # - 7.5 to get to top of circle
+               shots_and_blocks_2019$abs_x[i] <= x_value_of_top_of_crease_zone &
+               sides_ratio <= threshold_ratio ){
+            shot_zone[i] <- 2
+      }
+      else {
+            shot_zone[i] <- 3
+      }
+    }
+    
+    # Add column to shots dataframe
+    shots_and_blocks_2019$shot_zone <- shot_zone
+
+    
+#### Create subsets - one for shots on net, one for goals
+    shots_on_net <- shots_and_blocks_2019[shots_and_blocks_2019$event  =="Shot"|
+                                          shots_and_blocks_2019$event =="Goal", ]
+    
+    goals <- shots_and_blocks_2019[shots_and_blocks_2019$event =="Goal", ]
+      
+#### Summarize for team, zone and play_type
+    
+      # Summarize shot attempts
+      shots_summary <- shots_and_blocks_2019 %>%
+        group_by(team_id_for, team_for_play_type, shot_zone) %>%
+        summarise(shot_attempts =  n())  
+          
+      # Summarize shots on net data
+      shots_on_target_summary <- shots_on_net %>%
+        group_by(team_id_for, team_for_play_type, shot_zone) %>%
+        summarise(shots_on_net =  n())  
+      
+      # Summarize goals data
+      goals_summary <- goals %>%
+        group_by(team_id_for, team_for_play_type, shot_zone) %>%
+        summarise(goal_count =  n())  
+
+      
+#### Create unique field to use for merge
+shots_summary$code <- paste(shots_summary$team_id_for, ",", 
+                            shots_summary$team_for_play_type, ",", 
+                            shots_summary$shot_zone) 
+
+shots_on_target_summary$code <- paste(shots_on_target_summary$team_id_for, ",", 
+                                      shots_on_target_summary$team_for_play_type, ",",
+                                      shots_on_target_summary$shot_zone) 
+
+goals_summary$code <- paste(goals_summary$team_id_for, ",", 
+                            goals_summary$team_for_play_type, ",", 
+                            goals_summary$shot_zone) 
+
+#### Merge shots attempts and goals
+merged_team_zone_play_shots <- merge(shots_summary, shots_on_target_summary, 
+                                     by = c("code", "code"))
+
+merged_team_zone_play_shots <- merge(merged_team_zone_play_shots, goals_summary, 
+                                     by = c("code", "code"))
+
+merged_team_zone_play_shots <- merged_team_zone_play_shots[,c(1:5,9,13)]
+colnames(merged_team_zone_play_shots) <- c("code", "team_id_for", "team_for_play_type",
+                                           "shot_zone","shot_attempts",
+                                           "shots_on_net", "goal_count")
+
+
+
+####  Long to wide format
+long_data_shots<- merged_team_zone_play_shots[,c(2:5)] # remove code column
+long_data_shots_on_net <- merged_team_zone_play_shots[,c(2:4,6)] # remove code column
+long_data_goals <- merged_team_zone_play_shots[,c(2:4,7)] # remove code column
+
+wide_shots <- long_data_shots %>% spread(team_for_play_type, shot_attempts)
+wide_shots_on_net <- long_data_shots_on_net %>% spread(team_for_play_type, shots_on_net)
+wide_goals <- long_data_goals %>% spread(team_for_play_type, goal_count)
+
+```
+
+
+
+```{r Create long shots }
+
+###############################################################################
+# Summarizing shots taken by PLAYER
+###############################################################################
+
+# CREATE LONG FORMAT - each shot is repeated 6 times so that there is one 
+    # entry of each shot per player on the ice for a team (6 players per team)
+
+names_for_columns <- c("cumulative_time", "play_id", "game_id", "team_id_for", "team_id_against",
+                      "event", "secondaryType", "play_type_lower_team_id", "play_type_higher_team_id",
+                      "team_for_play_type", "empty_net", "abs_x", "adj_y", "shot_zone", "Goalie_low_id", 
+                      "Goalie_low_name", "Goalie_high_id", "Goalie_high_name", "Skater_low_id",           
+                      "Skater_low_name", "Skater_high_id", "Skater_high_name")
+
+#### Create 6 "folds" for each play (alloting it to one player "for" and "against)
+fold_1 <- shots_and_blocks_2019[,c(2:8,13:14,55:59,51:54,15,17,33,35)]
+colnames(fold_1) <- names_for_columns
+
+fold_2 <- shots_and_blocks_2019[,c(2:8,13:14,55:59,51:54,18,20,36,38)]
+colnames(fold_2) <- names_for_columns
+
+fold_3 <- shots_and_blocks_2019[,c(2:8,13:14,55:59,51:54,21,23,39,41)]
+colnames(fold_3) <- names_for_columns
+
+fold_4 <- shots_and_blocks_2019[,c(2:8,13:14,55:59,51:54,24,26,42,44)]
+colnames(fold_4) <- names_for_columns
+
+fold_5 <- shots_and_blocks_2019[,c(2:8,13:14,55:59,51:54,27,29,45,47)]
+colnames(fold_5) <- names_for_columns
+
+fold_6 <- shots_and_blocks_2019[,c(2:8,13:14,55:59,51:54,30,31,48,50)]
+colnames(fold_6) <- names_for_columns
+
+
+#### Long format by binding rows
+long_shots_player <- rbind(fold_1,fold_2,fold_3,fold_4,fold_5,fold_6)
+
+unique_low <- unique(long_shots_player$Skater_low_id)
+unique_high <- unique(long_shots_player$Skater_high_id)
+
+unique_all <- unique(c(unique_low, unique_high))
+
+
+```
+
+
+```{r Determine player for}
+
+###############################################################################
+# DETERMINING WHICH TEAM IS "FOR" and "AGAINST" on each shot taken
+###############################################################################
+
+
+# Determine which player is "for, which is against and who is the goalie for/against
+### Adjustment for blocked shots (team for goes to the team blocking it), 
+### we want to understand who shot it
+long_shots_player$player_for_id <- 
+  ifelse((long_shots_player$team_id_for > long_shots_player$team_id_against) &
+      long_shots_player$event == "Blocked Shot", long_shots_player$Skater_low_id, 
+      ifelse((long_shots_player$team_id_for > long_shots_player$team_id_against) &
+            long_shots_player$event != "Blocked Shot", long_shots_player$Skater_high_id,
+            ifelse((long_shots_player$team_id_for < long_shots_player$team_id_against) &
+                 long_shots_player$event == "Blocked Shot", 
+                 long_shots_player$Skater_high_id,long_shots_player$Skater_low_id)))
+                                       
+long_shots_player$player_against_id <- 
+  ifelse(long_shots_player$player_for_id == long_shots_player$Skater_high_id,
+        long_shots_player$Skater_low_id, long_shots_player$Skater_high_id)
+
+
+long_shots_player$goalie_for_id <- 
+  ifelse((long_shots_player$team_id_for > long_shots_player$team_id_against) &
+          long_shots_player$event == "Blocked Shot", long_shots_player$Goalie_low_id, 
+      ifelse((long_shots_player$team_id_for > long_shots_player$team_id_against) &
+                 long_shots_player$event != "Blocked Shot", long_shots_player$Goalie_high_id,
+            ifelse((long_shots_player$team_id_for < long_shots_player$team_id_against) &
+                 long_shots_player$event == "Blocked Shot", 
+                 long_shots_player$Goalie_high_id,long_shots_player$Goalie_low_id)))
+
+long_shots_player$goalie_against_id <- 
+  ifelse(long_shots_player$goalie_for_id == long_shots_player$Goalie_high_id,
+            long_shots_player$Goalie_low_id, long_shots_player$Goalie_high_id)
+
+
+# Create unique id (1 UNIQUE ID PER PLAYER PER GAME)
+long_shots_player$player_for_game <- paste(long_shots_player$player_for_id, long_shots_player$game_id)
+long_shots_player$player_against_game <- paste(long_shots_player$player_against_id, long_shots_player$game_id)
+
+```
+
+
+```{r message=FALSE}
+
+###############################################################################
+# SUMMARIZE OPPORTUNITIES FOR EACH PLAYER/GAME
+###############################################################################
+
+############################   Shot attempts    #############################
+
+# Summarize shot attempts FOR
+shots_summary <- long_shots_player %>%
+  group_by(player_for_game, player_for_id, game_id, team_for_play_type, shot_zone) %>%
+  summarise(shot_attempts =  n())  
+
+wide_shots_summary <- shots_summary %>% spread(team_for_play_type, shot_attempts)
+
+# Break out per zone
+zone_1_shot_attempts_summary_for <- wide_shots_summary[wide_shots_summary$shot_zone ==1,]
+zone_2_shot_attempts_summary_for <- wide_shots_summary[wide_shots_summary$shot_zone ==2,]
+zone_3_shot_attempts_summary_for <- wide_shots_summary[wide_shots_summary$shot_zone ==3,]
+
+#### Shots to all zones summarized on same line for PLAYER GAME 
+# VERY IMPORTANT
+# because not every player has shots in all 3 zones every game, 
+## the left hand side of the merge must have any possibility of player-game
+unique_players_games <- data.frame(unique(long_shots_player$player_for_game), 
+                          rep(1, length(unique(long_shots_player$player_for_game))))
+
+
+shots_for_all_zones <- merge(unique_players_games, zone_1_shot_attempts_summary_for, 
+                             by.x = "unique.long_shots_player.player_for_game.", 
+                             by.y = "player_for_game" , all.x = TRUE)
+
+shots_for_all_zones <- merge(shots_for_all_zones, zone_2_shot_attempts_summary_for,
+                             by.x= "unique.long_shots_player.player_for_game.", 
+                             by.y= "player_for_game", all.x = TRUE)
+
+shots_for_all_zones <- merge(shots_for_all_zones, zone_3_shot_attempts_summary_for,
+                             by.x = "unique.long_shots_player.player_for_game.", 
+                             by.y= "player_for_game", all.x = TRUE)
+
+shots_for_all_zones <- shots_for_all_zones[,c(1, 6:8, 12:14, 18:20)]
+colnames(shots_for_all_zones) <- c("player_for_game","Z1_attempt_EV",
+                                   "Z1_attempt_PP", "Z1_attempt_SH", 
+                                   "Z2_attempt_EV", "Z2_attempt_PP",
+                                   "Z2_attempt_SH","Z3_attempt_EV", 
+                                   "Z3_attempt_PP","Z3_attempt_SH")
+
+```
+
+```{r message=FALSE}
+
+##############################################################################
+############################   Shots on target    ############################
+
+long_on_goal_player<- long_shots_player[long_shots_player$event =="Goal" | 
+                                          long_shots_player$event =="Shot",]
+
+# Summarize on net attempts
+on_goal_summary <- long_on_goal_player %>%
+  group_by(player_for_game, player_for_id, game_id, team_for_play_type, shot_zone) %>%
+  summarise(shot_attempts =  n())  
+
+# Break out per zone
+wide_attempts_summary <- on_goal_summary %>% spread(team_for_play_type, shot_attempts)
+
+zone_1_on_target_summary_for <- wide_attempts_summary[wide_attempts_summary$shot_zone ==1,]
+zone_2_on_target_summary_for <- wide_attempts_summary[wide_attempts_summary$shot_zone ==2,]
+zone_3_on_target_summary_for <- wide_attempts_summary[wide_attempts_summary$shot_zone ==3,]
+
+
+on_target_for_all_zones <- merge(unique_players_games, zone_1_on_target_summary_for, 
+                                 by.x = "unique.long_shots_player.player_for_game.", 
+                                 by.y = "player_for_game" , all.x = TRUE)
+
+on_target_for_all_zones <- merge(on_target_for_all_zones, zone_2_on_target_summary_for,
+                             by.x = "unique.long_shots_player.player_for_game.", 
+                             by.y = "player_for_game" , all.x = TRUE)
+on_target_for_all_zones <- merge(on_target_for_all_zones, zone_3_on_target_summary_for,
+                             by.x = "unique.long_shots_player.player_for_game.", 
+                             by.y = "player_for_game" , all.x = TRUE)
+
+on_target_for_all_zones <- on_target_for_all_zones[,c(1, 6:8, 12:14, 18:20)]
+colnames(on_target_for_all_zones) <- c("player_for_game", "Z1_on_target_EV",
+                                   "Z1_on_target_PP", "Z1_on_target_SH", 
+                                   "Z2_on_target_EV", "Z2_on_target_PP",
+                                   "Z2_on_target_SH","Z3_on_target_EV", 
+                                   "Z3_on_target_PP","Z3_on_target_SH")
+
+# Merging attempts and on target
+cummulative_all_for <- merge(shots_for_all_zones, on_target_for_all_zones,
+                             by.x = "player_for_game", by.y = "player_for_game")
+
+```
+
+
+```{r message=FALSE}
+
+##############################################################################
+################################  GOALS   ###################################
+
+long_goal_player<- long_shots_player[long_shots_player$event =="Goal",]
+
+# Summarize goals for
+goal_summary <- long_goal_player %>%
+  group_by(player_for_game, player_for_id, game_id, team_for_play_type, shot_zone) %>%
+  summarise(shot_attempts =  n())  
+
+wide_goal_summary <- goal_summary %>% spread(team_for_play_type, shot_attempts)
+
+# Break out per zone
+zone_1_goal_summary_for <- wide_goal_summary[wide_goal_summary$shot_zone ==1,]
+zone_2_goal_summary_for <- wide_goal_summary[wide_goal_summary$shot_zone ==2,]
+zone_3_goal_summary_for <- wide_goal_summary[wide_goal_summary$shot_zone ==3,]
+
+
+goal_for_all_zones <- merge(unique_players_games, zone_1_goal_summary_for,
+                            by.x = "unique.long_shots_player.player_for_game.", 
+                            by.y = "player_for_game" , all.x = TRUE)
+
+goal_for_all_zones <- merge(goal_for_all_zones, zone_2_goal_summary_for,
+                            by.x = "unique.long_shots_player.player_for_game.", 
+                            by.y = "player_for_game" , all.x = TRUE)
+
+goal_for_all_zones <- merge(goal_for_all_zones, zone_3_goal_summary_for,
+                            by.x = "unique.long_shots_player.player_for_game.", 
+                            by.y = "player_for_game" , all.x = TRUE)
+
+goal_for_all_zones <- goal_for_all_zones[,c(1, 6:8, 12:14, 18:20)]
+colnames(goal_for_all_zones) <- c("player_for_game", "Z1_goal_EV",
+                                   "Z1_goal_PP", "Z1_goal_SH", "Z2_goal_EV", "Z2_goal_PP",
+                                   "Z2_goal_SH","Z3_goal_EV", "Z3_goal_PP","Z3_goal_SH")
+
+# Merging attempts and on target
+cummulative_all_for <- merge(cummulative_all_for, goal_for_all_zones,
+                             by= c("player_for_game", "player_for_game"))
+
+```
+
+
+```{r Summarize by player against, message = FALSE}
+
+###############################################################################
+# SUMMARIZE OPPORTUNITIES AGAINST EACH PLAYER/GAME
+###############################################################################
+
+############################   Shot attempts    ###############################
+
+# Summarize shot attempts against
+shots_summary <- long_shots_player %>%
+  group_by(player_against_game, player_against_id, game_id, team_for_play_type, 
+           shot_zone) %>%
+  summarise(shot_attempts =  n())  
+
+wide_shots_summary <- shots_summary %>% spread(team_for_play_type, shot_attempts)
+
+
+# Break out per zone
+zone_1_shot_attempts_summary_against <- 
+  wide_shots_summary[wide_shots_summary$shot_zone ==1,]
+
+zone_2_shot_attempts_summary_against <- 
+  wide_shots_summary[wide_shots_summary$shot_zone ==2,]
+
+zone_3_shot_attempts_summary_against <- 
+  wide_shots_summary[wide_shots_summary$shot_zone ==3,]
+
+shots_against_all_zones <- 
+  merge(unique_players_games, zone_1_shot_attempts_summary_against, 
+         by.x = "unique.long_shots_player.player_for_game.", 
+         by.y = "player_against_game" , all.x = TRUE)
+
+shots_against_all_zones <- 
+  merge(shots_against_all_zones, zone_2_shot_attempts_summary_against,
+         by.x = "unique.long_shots_player.player_for_game.", 
+         by.y = "player_against_game" , all.x = TRUE)
+
+shots_against_all_zones <- 
+  merge(shots_against_all_zones, zone_3_shot_attempts_summary_against,
+       by.x = "unique.long_shots_player.player_for_game.", 
+       by.y = "player_against_game" , all.x = TRUE)
+
+
+### watch out!
+# PP when against means PP for other team - this is addressed by changing order 
+## of SH and PP vs for when assigning column names
+
+shots_against_all_zones <- shots_against_all_zones[,c(1, 6:8, 12:14, 18:20)]
+
+colnames(shots_against_all_zones) <- c("player_against_game" ,"Z1_attempt_EV",
+                                   "Z1_attempt_SH", "Z1_attempt_PP", 
+                                   "Z2_attempt_EV", "Z2_attempt_SH",
+                                   "Z2_attempt_PP","Z3_attempt_EV", 
+                                   "Z3_attempt_SH","Z3_attempt_PP")
+
+# After flipping, AGAINST IN PP means that the player_against's team is in PP, 
+## the other team is in SH
+# For this reason, there are more shots against in SH 
+## (meaning that the player we are focusing on is SH, the other team is in pp)
+
+```
+
+```{r message=FALSE}
+
+##############################################################################
+############################   Shots on target    ############################
+
+# Summarize shot on target against
+long_on_goal_player <- long_shots_player[long_shots_player$event =="Goal" |
+                                           long_shots_player$event =="Shot",]
+
+on_goal_summary <- long_on_goal_player %>%
+  group_by(player_against_game, player_against_id, game_id, 
+           team_for_play_type, shot_zone) %>%
+  summarise(shot_attempts =  n())  
+
+wide_attempts_summary <- on_goal_summary %>% spread(team_for_play_type, shot_attempts)
+
+# Break out per zone
+zone_1_on_target_summary_against <- 
+  wide_attempts_summary[wide_attempts_summary$shot_zone ==1,]
+
+zone_2_on_target_summary_against <- 
+  wide_attempts_summary[wide_attempts_summary$shot_zone ==2,]
+
+zone_3_on_target_summary_against <- 
+  wide_attempts_summary[wide_attempts_summary$shot_zone ==3,]
+
+on_target_against_all_zones <- 
+  merge(unique_players_games, zone_1_on_target_summary_against, 
+        by.x = "unique.long_shots_player.player_for_game.", 
+        by.y = "player_against_game" , all.x = TRUE)
+
+on_target_against_all_zones <- 
+  merge(on_target_against_all_zones, zone_2_on_target_summary_against,
+        by.x = "unique.long_shots_player.player_for_game.", 
+        by.y = "player_against_game" , all.x = TRUE)
+
+on_target_against_all_zones <- 
+  merge(on_target_against_all_zones, zone_3_on_target_summary_against,
+        by.x = "unique.long_shots_player.player_for_game.", 
+        by.y = "player_against_game" , all.x = TRUE)
+
+
+on_target_against_all_zones <- on_target_against_all_zones[,c(1, 6:8, 12:14, 18:20)]
+colnames(on_target_against_all_zones) <- c("player_against_game", "Z1_on_target_EV",
+                                   "Z1_on_target_SH", "Z1_on_target_PP", 
+                                   "Z2_on_target_EV", "Z2_on_target_SH",
+                                   "Z2_on_target_PP","Z3_on_target_EV", 
+                                   "Z3_on_target_SH","Z3_on_target_PP")
+
+# Merging attempts and on target
+cummulative_all_against <- merge(shots_against_all_zones, on_target_against_all_zones,
+                             by= c("player_against_game", "player_against_game"))
+
+
+```
+
+```{r message=FALSE}
+
+##############################################################################
+################################  GOALS   #################################
+
+# Summarize goal against
+long_goal_player<- long_shots_player[long_shots_player$event =="Goal",]
+
+goal_summary <- long_goal_player %>%
+  group_by(player_against_game, player_against_id, game_id, 
+           team_for_play_type, shot_zone) %>%
+  summarise(shot_attempts =  n())  
+
+wide_goal_summary <- goal_summary %>% spread(team_for_play_type, shot_attempts)
+
+# Break out per zone
+zone_1_goal_summary_against <- wide_goal_summary[wide_goal_summary$shot_zone ==1,]
+zone_2_goal_summary_against <- wide_goal_summary[wide_goal_summary$shot_zone ==2,]
+zone_3_goal_summary_against <- wide_goal_summary[wide_goal_summary$shot_zone ==3,]
+
+goal_against_all_zones <- merge(unique_players_games, zone_1_goal_summary_against, 
+                                 by.x = "unique.long_shots_player.player_for_game.", 
+                                by.y = "player_against_game" , all.x = TRUE)
+
+goal_against_all_zones <- merge(goal_against_all_zones, zone_2_goal_summary_against,
+                                 by.x = "unique.long_shots_player.player_for_game.", 
+                                by.y = "player_against_game" , all.x = TRUE)
+
+goal_against_all_zones <- merge(goal_against_all_zones, zone_3_goal_summary_against,
+                                 by.x = "unique.long_shots_player.player_for_game.", 
+                                by.y = "player_against_game" , all.x = TRUE)
+
+
+goal_against_all_zones <- goal_against_all_zones[,c(1, 6:8, 12:14, 18:20)]
+colnames(goal_against_all_zones) <- c("player_against_game","Z1_goal_EV",
+                                   "Z1_goal_SH", "Z1_goal_PP", "Z2_goal_EV", 
+                                   "Z2_goal_SH", "Z2_goal_PP","Z3_goal_EV", 
+                                   "Z3_goal_SH","Z3_goal_PP")
+
+# Merging attempts and on target
+cummulative_all_against <- merge(cummulative_all_against, goal_against_all_zones,
+                             by= c("player_against_game", "player_against_game"))
+
+
+```
+
+
+```{r Summarize by player for & Against}
+
+###############################################################################
+# MERGING OFFENSE AND DEFENSE stats PER PLAYER PER GAME
+###############################################################################
+
+cummulative_all_for_against <- merge(cummulative_all_for, cummulative_all_against,
+                             by.x = c("player_for_game"), 
+                             by.y = c("player_against_game"), all.x = TRUE)
+
+names <-  c("player_game",       
+            "Z1_attempt_EV_FOR", "Z1_attempt_PP_", "Z1_attempt_SH_FOR", 
+            "Z2_attempt_EV_FOR", "Z2_attempt_PP_FOR", "Z2_attempt_SH_FOR",
+            "Z3_attempt_EV_FOR", "Z3_attempt_PP_FOR", "Z3_attempt_SH_FOR",
+            "Z1_on_target_EV_FOR", "Z1_on_target_PP_FOR","Z1_on_target_SH_FOR",
+            "Z2_on_target_EV_FOR", "Z2_on_target_PP_FOR","Z2_on_target_SH_FOR",
+            "Z3_on_target_EV_FOR","Z3_on_target_PP_FOR", "Z3_on_target_SH_FOR",
+            "Z1_goal_EV_FOR", "Z1_goal_PP_FOR", "Z1_goal_SH_FOR",  
+            "Z2_goal_EV_FOR", "Z2_goal_PP_FOR", "Z2_goal_SH_FOR",
+            "Z3_goal_EV_FOR", "Z3_goal_PP_FOR", "Z3_goal_SH_FOR", 
+            "Z1_attempt_EV_AGAINST", "Z1_attempt_SH_AGAINST",
+            "Z1_attempt_PP_AGAINST", "Z2_attempt_EV_AGAINST",
+            "Z2_attempt_SH_AGAINST", "Z2_attempt_PP_AGAINST",
+            "Z3_attempt_EV_AGAINST", "Z3_attempt_SH_AGAINST",
+            "Z3_attempt_PP_AGAINST", "Z1_on_target_EV_AGAINST",
+            "Z1_on_target_SH_AGAINST", "Z1_on_target_PP_AGAINST",
+            "Z2_on_target_EV_AGAINST", "Z2_on_target_SH_AGAINST",
+            "Z2_on_target_PP_AGAINST", "Z3_on_target_EV_AGAINST",
+            "Z3_on_target_SH_AGAINST", "Z3_on_target_PP_AGAINST",
+            "Z1_goal_EV_AGAINST", "Z1_goal_SH_AGAINST",
+            "Z1_goal_PP_AGAINST", "Z2_goal_EV_AGAINST",
+            "Z2_goal_SH_AGAINST", "Z2_goal_PP_AGAINST",
+            "Z3_goal_EV_AGAINST","Z3_goal_SH_AGAINST", "Z3_goal_PP_AGAINST")  
+
+colnames(cummulative_all_for_against) <- names
+
+###### Separate game and player
+player <- substr(cummulative_all_for_against$player_game, 1, 
+                 str_locate(cummulative_all_for_against$player_game, " ")[,1]-1)
+
+game <- substr(cummulative_all_for_against$player_game, 
+               str_locate(cummulative_all_for_against$player_game, " ")[,1] + 1,
+               nchar(cummulative_all_for_against$player_game))
+
+final_df <- data.frame(player, game, cummulative_all_for_against)
+
+###### remove rows with NAs for player names
+row_removal <- NULL
+counter <- 1
+for (i in 1:nrow(final_df)){
+  if (final_df$player[i] == "NA" | final_df$game[i] == "NA") {
+    row_removal[counter] <- i
+    counter <- counter+1
+  }
+}
+
+final_df <- final_df[-c(matrix(row_removal)),]
+
+```
+
+```{r add player details, message= FALSE}
+
+####################################################################################
+# ADDING PLAYER DETAILS (e.g., time on ice for game, team played on, etc)
+####################################################################################
+
+# Loading data
+game_skater_stats <- read_csv("~/Downloads/game_skater_stats.csv")
+team_info <- read_csv("~/Downloads/team_info.csv")
+
+# Merging skater stats with team name
+merged_data <- merge(game_skater_stats,team_info, by=c("team_id","team_id"))
+
+# Filtering for year
+merged_data$year <- substr(merged_data$game_id,1,6)
+skater_stats_2019 <- merged_data[merged_data$year == "201902",]
+
+# Removing useless column
+skater_stats_2019 <- data.frame(skater_stats_2019[,-c(27)])
+
+# Removing duplicates
+skater_stats_2019 <- distinct(skater_stats_2019)
+
+# Finding unique abbreviations for teams
+team_abb_list <- unique(skater_stats_2019$abbreviation)   # Canadiens is MTL
+
+# Adding unique player and game id
+skater_stats_2019$player_game_id <- paste(skater_stats_2019$player_id, "," ,
+                                          skater_stats_2019$game_id)
+
+
+####################### Add player names to skater stats #######################
+
+# Load player name data
+player_info <- read_csv("~/Downloads/player_info.csv")
+skater_stats_2019 <- merge(skater_stats_2019,player_info, 
+                           by=c("player_id","player_id"))
+
+skater_stats_2019$player_game <- paste(skater_stats_2019$player_id, 
+                                       skater_stats_2019$game_id)
+
+
+################################### Merging ####################################
+
+# Merge
+merged_df <- merge(skater_stats_2019, final_df, by = "player_game")
+
+# Remove redundant columns
+merged_df <- merged_df[,-c(3,24,27:29,32:33, 36:37, 40:42)]
+
+merged_df <- distinct(merged_df)
+
+
+```
+
+
+```{r assigning goaltending tiers, message=FALSE}
+
+####################################################################################
+# ASSIGNING GOALTENDERS TO TIERS BASED ON SAVE PERCENTAGE
+####################################################################################
+
+# Summarise all shots and goals received
+goalie_shots <- long_shots_player %>%
+  filter(long_shots_player$event =="Shot") %>%
+  group_by(goalie_against_id) %>%
+  summarise(n())
+goalie_shots$total_shots <- goalie_shots$`n()`/6
+
+# Summarise all shots and goals received
+goalie_goals <- long_shots_player %>%
+  filter(long_shots_player$event =="Goal") %>%
+  group_by(goalie_against_id) %>%
+  summarise(n())
+goalie_goals$total_goals <- goalie_goals$`n()`/6
+
+
+# Goalie tiers
+goalie_tiers <- merge(goalie_shots, goalie_goals, by = "goalie_against_id")
+goalie_tiers <- goalie_tiers[,c(1,3,5)]
+
+goalie_tiers$percentage <- 1 - goalie_tiers$total_goals/goalie_tiers$total_shots
+
+# Order and assign tiers
+goalie_tiers <- goalie_tiers[order(-goalie_tiers$percentage),]
+
+tier <- NULL
+for (i in 1:nrow(goalie_tiers)){
+  if(i< 20){
+    tier[i] <- 1
+    
+} else if (i <40){
+    tier[i] <- 2
+    
+} else if (i <60 | goalie_tiers$total_shots[i] > 1000){
+    tier[i] <- 3
+    
+} else {
+  tier[i] <- 4
+}
+}
+
+goalie_tiers$tier <- tier
+
+# Adding goalie name
+goalie_info <- player_info[player_info$primaryPosition == "G",]
+goalie_tiers_names <- merge(goalie_tiers, goalie_info, 
+                            by.x = "goalie_against_id", by.y = "player_id")
+
+goalie_tier_names <- goalie_tiers_names[,c(6,7,1:5)]
+
+
+```
+
+```{r calculating goalie % per tier, message = FALSE}
+
+####################################################################################
+# CALCULATING EFFICIENCY PER GOALIE TIER, per shot zone
+####################################################################################
+
+# add goalie against info
+long_shots_player_with_goalie <- merge(long_shots_player, 
+                                       goalie_tiers, by = "goalie_against_id")
+
+long_shots_player_with_goalie$goalie_against_tier <- 
+  long_shots_player_with_goalie$tier
+
+
+# Calculate efficiency for goalies in each zone
+goalie_tier_summary_shot <- long_shots_player_with_goalie %>%
+  filter(long_shots_player_with_goalie$event =="Shot") %>%
+  group_by(tier, team_for_play_type, shot_zone) %>%
+  summarise(n())
+
+# Divide by 6 because each shot is repeated on 6 lines (one per player on ice)
+goalie_tier_summary_shot$shot_count <- goalie_tier_summary_shot$`n()`/6
+goalie_tier_summary_shot$unique_id <- paste(goalie_tier_summary_shot$tier, 
+                                            goalie_tier_summary_shot$team_for_play_type,
+                                            goalie_tier_summary_shot$shot_zone)
+
+goalie_tier_summary_goal <- long_shots_player_with_goalie %>%
+  filter(long_shots_player_with_goalie$event =="Goal") %>%
+  group_by(tier, team_for_play_type, shot_zone) %>%
+  summarise(n())
+
+# Divide by 6 because each shot is repeated on 6 lines (one per player on ice)
+goalie_tier_summary_goal$goal_count <- goalie_tier_summary_goal$`n()`/6
+goalie_tier_summary_goal$unique_id <- paste(goalie_tier_summary_goal$tier, 
+                                            goalie_tier_summary_goal$team_for_play_type,
+                                            goalie_tier_summary_goal$shot_zone)
+
+
+goalie_tier_shot_goal <- merge(goalie_tier_summary_shot, 
+                               goalie_tier_summary_goal, by = "unique_id")
+goalie_tier_shot_goal <- goalie_tier_shot_goal[,c(2,3,4,6,11)]
+
+# Calculating percentage
+goalie_tier_shot_goal$percentage <- 1 - goalie_tier_shot_goal$goal_count / 
+  goalie_tier_shot_goal$shot_count
+
+goalie_tier_shot_goal$play_type_zone <- paste(goalie_tier_shot_goal$team_for_play_type, 
+                                              goalie_tier_shot_goal$shot_zone.x)
+
+
+# Tier data
+tier_goalie <- goalie_tier_shot_goal[,c(1,7,6)]
+wide_goalie_percentage <- tier_goalie %>% spread(play_type_zone, percentage)
+
+```
+
+```{r list of gaolie for and against for each player game, include=FALSE}
+
+####################################################################################
+# MATCH EACH PLAYER-GAME line to the goaltenders for that game
+####################################################################################
+
+# Extract player game, goalie for and goalie against
+player_game <- paste(long_shots_player$player_for_id, long_shots_player$game_id)
+goalie_for <- long_shots_player$goalie_for_id
+goalie_against <- long_shots_player$goalie_against_id
+
+goalie_game_df <- data.frame(player_game, goalie_for, goalie_against)
+goalie_game_df <- distinct(goalie_game_df)
+
+# Merge stats FOR goalie
+goalie_game_df <- merge(goalie_game_df, goalie_tier_names, by.x = "goalie_for" , 
+                        by.y = "goalie_against_id")
+
+goalie_game_df <- goalie_game_df[,c(2,1,3, 4,5,8,9)]
+colnames(goalie_game_df) <- c("player_game", "goalie_for", "goalie_against", 
+                              "goalie_for_firstName", "goalie_for_lastName",  
+                              "goalie_for_perc_2019", "goalie_for_tier")
+
+# Expected save percentage per zone and situation type depending on goalie tier
+g_for_EV_1 <- ifelse(goalie_game_df$goalie_for_tier ==1, wide_goalie_percentage[1,2],
+                     ifelse(goalie_game_df$goalie_for_tier ==2, 
+                            wide_goalie_percentage[2,2],
+                            ifelse(goalie_game_df$goalie_for_tier ==3, 
+                                   wide_goalie_percentage[3,2],
+                                   wide_goalie_percentage[4,2])))
+
+g_for_EV_2 <- ifelse(goalie_game_df$goalie_for_tier ==1, wide_goalie_percentage[1,3],
+                     ifelse(goalie_game_df$goalie_for_tier ==2, 
+                            wide_goalie_percentage[2,3],
+                            ifelse(goalie_game_df$goalie_for_tier ==3, 
+                                   wide_goalie_percentage[3,3],
+                                   wide_goalie_percentage[4,3])))
+
+g_for_EV_3 <- ifelse(goalie_game_df$goalie_for_tier ==1, wide_goalie_percentage[1,4],
+                     ifelse(goalie_game_df$goalie_for_tier ==2, 
+                            wide_goalie_percentage[2,4],
+                            ifelse(goalie_game_df$goalie_for_tier ==3, 
+                                   wide_goalie_percentage[3,4],
+                                   wide_goalie_percentage[4,4])))
+
+g_for_PP_1 <- ifelse(goalie_game_df$goalie_for_tier ==1, wide_goalie_percentage[1,5],
+                     ifelse(goalie_game_df$goalie_for_tier ==2, 
+                            wide_goalie_percentage[2,5],
+                            ifelse(goalie_game_df$goalie_for_tier ==3, 
+                                   wide_goalie_percentage[3,5],
+                                   wide_goalie_percentage[4,5])))
+
+g_for_PP_2 <- ifelse(goalie_game_df$goalie_for_tier ==1, wide_goalie_percentage[1,6],
+                     ifelse(goalie_game_df$goalie_for_tier ==2, 
+                            wide_goalie_percentage[2,6],
+                            ifelse(goalie_game_df$goalie_for_tier ==3, 
+                                   wide_goalie_percentage[3,6],
+                                   wide_goalie_percentage[4,6])))
+
+g_for_PP_3 <- ifelse(goalie_game_df$goalie_for_tier ==1, wide_goalie_percentage[1,7],
+                     ifelse(goalie_game_df$goalie_for_tier ==2, 
+                            wide_goalie_percentage[2,7],
+                            ifelse(goalie_game_df$goalie_for_tier ==3, 
+                                   wide_goalie_percentage[3,7],
+                                   wide_goalie_percentage[4,7])))
+
+g_for_SH_1 <- ifelse(goalie_game_df$goalie_for_tier ==1, wide_goalie_percentage[1,8],
+                     ifelse(goalie_game_df$goalie_for_tier ==2, 
+                            wide_goalie_percentage[2,8],
+                            ifelse(goalie_game_df$goalie_for_tier ==3, 
+                                   wide_goalie_percentage[3,8],
+                                   wide_goalie_percentage[4,8])))
+
+g_for_SH_2 <- ifelse(goalie_game_df$goalie_for_tier ==1, wide_goalie_percentage[1,9],
+                     ifelse(goalie_game_df$goalie_for_tier ==2, 
+                            wide_goalie_percentage[2,9],
+                            ifelse(goalie_game_df$goalie_for_tier ==3, 
+                                   wide_goalie_percentage[3,9],
+                                   wide_goalie_percentage[4,9])))
+
+g_for_SH_3 <- ifelse(goalie_game_df$goalie_for_tier ==1, wide_goalie_percentage[1,10],
+                     ifelse(goalie_game_df$goalie_for_tier ==2, 
+                            wide_goalie_percentage[2,10],
+                            ifelse(goalie_game_df$goalie_for_tier ==3, 
+                                   wide_goalie_percentage[3,10],
+                                   wide_goalie_percentage[4,10])))
+
+goalie_game_df <- data.frame(goalie_game_df,g_for_EV_1, g_for_EV_2, g_for_EV_3,
+                             g_for_PP_1, g_for_PP_2,
+                             g_for_PP_3, g_for_SH_1, g_for_SH_2, g_for_SH_3)
+
+
+#################################################################################
+
+# Merge stats AGAINST goalie
+goalie_game_df <- merge(goalie_game_df, goalie_tier_names, by.x = "goalie_against" , 
+                        by.y = "goalie_against_id")
+goalie_game_df <- goalie_game_df[,c(2:16, 1, 17,18,21,22)]
+colnames(goalie_game_df) <- c("player_game", "goalie_for", "goalie_for_firstName", 
+                              "goalie_for_lastName","goalie_for_perc_2019", 
+                              "goalie_for_tier", "g_for_EV_1", "g_for_EV_2", 
+                              "g_for_EV_3", "g_for_PP_1", "g_for_PP_2", 
+                              "g_for_PP_3", "g_for_SH_1",
+                              "g_for_SH_2", "g_for_SH_3", "goalie_against", 
+                              "goalie_against_firstName","goalie_against_lastName",
+                              "goalie_against_perc_2019","goalie_against_tier")
+
+# Expected save percentage per zone and situation type depending on goalie tier
+g_against_EV_1 <- ifelse(goalie_game_df$goalie_against_tier ==1, 
+                         wide_goalie_percentage[1,2],
+                     ifelse(goalie_game_df$goalie_against_tier ==2, 
+                            wide_goalie_percentage[2,2],
+                            ifelse(goalie_game_df$goalie_against_tier ==3, 
+                                   wide_goalie_percentage[3,2],
+                                   wide_goalie_percentage[4,2])))
+
+g_against_EV_2 <- ifelse(goalie_game_df$goalie_against_tier ==1, 
+                         wide_goalie_percentage[1,3],
+                     ifelse(goalie_game_df$goalie_against_tier ==2, 
+                            wide_goalie_percentage[2,3],
+                            ifelse(goalie_game_df$goalie_against_tier ==3, 
+                                   wide_goalie_percentage[3,3],
+                                   wide_goalie_percentage[4,3])))
+
+g_against_EV_3 <- ifelse(goalie_game_df$goalie_against_tier ==1, 
+                         wide_goalie_percentage[1,4],
+                     ifelse(goalie_game_df$goalie_against_tier ==2, 
+                            wide_goalie_percentage[2,4],
+                            ifelse(goalie_game_df$goalie_against_tier ==3, 
+                                   wide_goalie_percentage[3,4],
+                                   wide_goalie_percentage[4,4])))
+
+g_against_PP_1 <- ifelse(goalie_game_df$goalie_against_tier ==1, 
+                         wide_goalie_percentage[1,5],
+                     ifelse(goalie_game_df$goalie_against_tier ==2, 
+                            wide_goalie_percentage[2,5],
+                            ifelse(goalie_game_df$goalie_against_tier ==3, 
+                                   wide_goalie_percentage[3,5],
+                                   wide_goalie_percentage[4,5])))
+
+g_against_PP_2 <- ifelse(goalie_game_df$goalie_against_tier ==1, 
+                         wide_goalie_percentage[1,6],
+                     ifelse(goalie_game_df$goalie_against_tier ==2, 
+                            wide_goalie_percentage[2,6],
+                            ifelse(goalie_game_df$goalie_against_tier ==3, 
+                                   wide_goalie_percentage[3,6],
+                                   wide_goalie_percentage[4,6])))
+
+g_against_PP_3 <- ifelse(goalie_game_df$goalie_against_tier ==1, 
+                         wide_goalie_percentage[1,7],
+                     ifelse(goalie_game_df$goalie_against_tier ==2, 
+                            wide_goalie_percentage[2,7],
+                            ifelse(goalie_game_df$goalie_against_tier ==3, 
+                                   wide_goalie_percentage[3,7],
+                                   wide_goalie_percentage[4,7])))
+
+g_against_SH_1 <- ifelse(goalie_game_df$goalie_against_tier ==1, 
+                         wide_goalie_percentage[1,8],
+                     ifelse(goalie_game_df$goalie_against_tier ==2, 
+                            wide_goalie_percentage[2,8],
+                            ifelse(goalie_game_df$goalie_against_tier ==3, 
+                                   wide_goalie_percentage[3,8],
+                                   wide_goalie_percentage[4,8])))
+
+g_against_SH_2 <- ifelse(goalie_game_df$goalie_against_tier ==1, 
+                         wide_goalie_percentage[1,9],
+                     ifelse(goalie_game_df$goalie_against_tier ==2, 
+                            wide_goalie_percentage[2,9],
+                            ifelse(goalie_game_df$goalie_against_tier ==3, 
+                                   wide_goalie_percentage[3,9],
+                                   wide_goalie_percentage[4,9])))
+
+g_against_SH_3 <- ifelse(goalie_game_df$goalie_against_tier ==1, 
+                         wide_goalie_percentage[1,10],
+                     ifelse(goalie_game_df$goalie_against_tier ==2, 
+                            wide_goalie_percentage[2,10],
+                            ifelse(goalie_game_df$goalie_against_tier ==3, 
+                                   wide_goalie_percentage[3,10],
+                                   wide_goalie_percentage[4,10])))
+
+goalie_game_df <- data.frame(goalie_game_df,g_against_EV_1, g_against_EV_2, 
+                             g_against_EV_3, g_against_PP_1,
+                             g_against_PP_2, g_against_PP_3, g_against_SH_1, 
+                             g_against_SH_2, g_against_SH_3)
+
+
+####################################################################################
+########################### Merging to player-game #################################
+
+require(data.table)
+setDT(merged_df); setDT(goalie_game_df) # convert to data.tables by reference
+
+merged_df <- goalie_game_df[merged_df, mult = "first", on = "player_game", nomatch=0L]
+
+```
+
+
+
+
+```{r, message=FALSE }
+
+####################################################################################
+# DETERMINING GOAL PERCENTAGE PER ZONE, IRRESPECTIVE OF GOALTENDER
+####################################################################################
+
+merged_df <- data.frame(merged_df)
+
+# Goal percentage
+
+  # Summarize shot attempts
+  shots_summary <- shots_and_blocks_2019 %>%
+    group_by(team_for_play_type, shot_zone) %>%
+    summarise(shot_attempts =  n())  
+      
+  # Summarize shots on net data
+  shots_on_target_summary <- shots_on_net %>%
+    group_by(team_for_play_type, shot_zone) %>%
+    summarise(shots_on_net =  n())  
+  
+  # Summarize goals data
+  goals_summary <- goals %>%
+    group_by(team_for_play_type, shot_zone) %>%
+    summarise(goal_count =  n())  
+
+  
+  
+# Merging in one df  
+score_percentage <- cbind(shots_summary, shots_on_target_summary)
+score_percentage <- cbind(score_percentage, goals_summary)
+
+score_percentage_df <- score_percentage[,c(1,2,3,6,9)]
+score_percentage_df$attempt_conversion <- score_percentage_df$goal_count / score_percentage_df$shot_attempts
+score_percentage_df$on_net_conversion <- score_percentage_df$goal_count / score_percentage_df$shots_on_net
+
+
+
+###############################################################################
+# Expected goals created and expected goals avoided (on defense)
+###############################################################################
+
+# Order to z1 EV,PP,SH | zone2 EV,PP,SH | Z3 EV,PP, SH
+on_net_percentage_multiplier <- 
+  score_percentage_df$on_net_conversion[c(1,4,7,2,5,8,3,6,9)]
+attempt_percentage_multiplier <- 
+  score_percentage_df$attempt_conversion[c(1,4,7,2,5,8,3,6,9)]
+
+
+# Expected goals created
+expected_goals_created <- 
+  t(t(matrix(as.numeric(unlist(merged_df[(68:76)])),nrow=nrow(merged_df))) * 
+      on_net_percentage_multiplier)
+
+colnames(expected_goals_created) <- 
+  c("Z1_EV_exp_goal_created", "Z1_PP_exp_goal_created", "Z1_SH_exp_goal_created", 
+    "Z2_EV_exp_goal_created", "Z2_PP_exp_goal_created", "Z2_SH_exp_goal_created",
+    "Z3_EV_exp_goal_created", "Z3_PP_exp_goal_created", "Z3_SH_exp_goal_created")
+
+###############################################################################
+# Expected goals avoided from blocking
+
+blocked_shots <- merged_df[(86:94)] - merged_df[(95:103)]
+colnames(blocked_shots) <- 
+  c("Z1_attempt_EV_blocked", "Z1_attempt_SH_blocked", "Z1_attempt_PP_blocked", 
+    "Z2_attempt_EV_blocked", "Z2_attempt_SH_blocked", "Z2_attempt_PP_blocked", 
+    "Z3_attempt_EV_blocked", "Z3_attempt_SH_blocked", "Z3_attempt_PP_blocked")
+
+
+# Divide by 5 for 5 players on ice
+expected_goals_prevented <- 
+  t(t(matrix(as.numeric(unlist(blocked_shots)),nrow=nrow(blocked_shots))) * 
+      attempt_percentage_multiplier) /5
+
+colnames(expected_goals_prevented) <- 
+  c("Z1_EV_exp_goal_prev", "Z1_SH_exp_goal_prev", "Z1_PP_exp_goal_prev", 
+    "Z2_EV_exp_goal_prev","Z2_SH_exp_goal_prev", "Z2_PP_exp_goal_prev", 
+    "Z3_EV_exp_goal_prev", "Z3_SH_exp_goal_prev", "Z3_PP_exp_goal_prev")
+
+
+###############################################################################
+# Expected goals scored by opponent
+
+# Divide by 5 for 5 players on ice
+expected_goals_given <- 
+  t(t(matrix(as.numeric(unlist(merged_df[(95:103)])),nrow=nrow(merged_df))) * 
+      on_net_percentage_multiplier)
+
+colnames(expected_goals_given) <- 
+  c("Z1_EV_exp_goal_given", "Z1_SH_exp_goal_given", "Z1_PP_exp_goal_given", 
+    "Z2_EV_exp_goal_given","Z2_SH_exp_goal_given", "Z2_PP_exp_goal_given",
+    "Z3_EV_exp_goal_given", "Z3_SH_exp_goal_given", "Z3_PP_exp_goal_given")
+
+
+```
+
+
+
+```{r ,message=FALSE}
+
+###############################################################################
+# Add expected goals to merged df
+###############################################################################
+
+# Add expected goals column
+merged_df <- cbind(merged_df, expected_goals_created)
+
+# Sum expected goals across zones
+merged_df$total_expected_goals_created <- rowSums(merged_df[,c(113:121)], 
+                                                  na.rm = TRUE)
+
+# Add goals scored and 0.5 * assist
+merged_df$offensive_contribution <- 
+  merged_df$total_expected_goals_created + merged_df$goals + merged_df$assists * 0.5
+
+
+
+###############################################################################
+# Summarize by team game
+###############################################################################
+
+# Create unique id for game and team
+merged_df$game_team_id <- paste(merged_df$game_id, merged_df$shortName)
+
+# Summarize goals scored and offensive contribution per team game
+team_game_summary <-
+  merged_df %>% 
+  group_by(game_team_id) %>% 
+  summarise(goals_team_total = sum(goals), 
+            offensive_contribution_team_total= sum(offensive_contribution))
+
+# Merge back to main df
+merged_df <- merge(merged_df, team_game_summary, by="game_team_id")
+
+
+###############################################################################
+# Assign goals scored
+###############################################################################
+
+merged_df$share_of_team_offense <- merged_df$offensive_contribution / merged_df$offensive_contribution_team_total
+merged_df$goals_assigned <- merged_df$share_of_team_offense * merged_df$goals_team_total
+
+
+###############################################################################
+# Add goals prevented
+###############################################################################
+
+# Add expected goals column
+merged_df <- cbind(merged_df, expected_goals_prevented)
+
+# Sum expected goals prevented across zones
+merged_df$total_expected_goals_prevented <- rowSums(merged_df[,c(129:137)], na.rm = TRUE)
+
+
+```
+
+
+```{r }
+
+###############################################################################
+# Add goals given 
+###############################################################################
+
+# Add expected goals column
+merged_df <- cbind(merged_df, expected_goals_given)
+
+colnames(merged_df)[c(139:147)] <- 
+  c("Z1_EV_exp_goal_given", "Z1_SH_exp_goal_given", "Z1_PP_exp_goal_given", 
+    "Z2_EV_exp_goal_given","Z2_SH_exp_goal_given", "Z2_PP_exp_goal_given", 
+    "Z3_EV_exp_goal_given", "Z3_SH_exp_goal_given", "Z3_PP_exp_goal_given")
+
+# Sum expected goals prevented across zones
+merged_df$total_expected_goals_given <- rowSums(merged_df[,c(139:147)], 
+                                                na.rm = TRUE)
+
+```
+
+
+
+```{r , message=FALSE}
+
+###############################################################################
+
+###############################################################################
+
+###############################################################################
+# Summarize key metrics by player (across games)
+###############################################################################
+
+# Sum of goals created in different zones
+merged_df$EV_expected_goals_created <- rowSums(merged_df[,c(114,117,120)], 
+                                               na.rm = TRUE)
+merged_df$PP_expected_goals_created <- rowSums(merged_df[,c(115,118,121)], 
+                                               na.rm = TRUE)
+merged_df$SH_expected_goals_created <- rowSums(merged_df[,c(116,119,122)], 
+                                               na.rm = TRUE)
+
+# Sum of goals assigned and prevented
+merged_df$goals_assigned_and_prevented <- merged_df$goals_assigned + 
+  merged_df$total_expected_goals_prevented
+
+
+merged_df <- distinct(merged_df)
+
+# Create summary
+player_contribution_summary <-
+  merged_df %>% 
+  group_by(player_id, firstName, lastName, primaryPosition, height_cm, weight, birthDate) %>% 
+  summarise(games = n(), TOI = sum(timeOnIce), EV_TOI = sum(evenTimeOnIce), 
+            PP_TOI = sum(powerPlayTimeOnIce), goals_total = sum(goals), 
+            assists_total = sum(assists), shots_total = sum(shots), 
+            hits_total = sum(hits),goals_assigned = sum(goals_assigned), 
+            goals_prevented = sum(total_expected_goals_prevented), 
+            total_goals_assigned_and_prevented = sum(goals_assigned_and_prevented),
+            total_exp_goals_created = sum(total_expected_goals_created), 
+            EV_exp_goals_created = sum(EV_expected_goals_created),
+            total_exp_goals_given = sum(total_expected_goals_given))
+
+
+```
+
+
+```{r, message=FALSE}
+
+###############################################################################
+# Find each player's most recent team
+###############################################################################
+
+# Left side - unique player and game combination
+player_recent_team <-
+  merged_df %>% 
+  group_by(player_id, firstName, lastName, primaryPosition, height_cm, 
+           weight, birthDate) %>% 
+  summarise(last_game = max(game_id))
+
+player_recent_team$player_game <- paste(player_recent_team$player_id, 
+                                        player_recent_team$last_game)
+
+
+# Right side, long list of all player games and teams
+player_team_long_list <- merged_df[,c(1,2,31,32,52:55)]
+
+
+# MERGE
+player_recent_team <- merge(player_recent_team, 
+                            player_team_long_list, by = "player_game")
+
+
+# Keep only player ID and team name
+player_team_df <- player_recent_team[,c(2,13,14)]
+colnames(player_team_df) <- c("player_id", "teamCity", "teamName")
+  
+
+###############################################################################
+# Add player details - TEAM
+###############################################################################
+
+# Add team
+player_contribution_summary <- merge(player_contribution_summary, 
+                                     player_team_df, by = "player_id")
+
+player_contribution_summary$Name <- paste(player_contribution_summary$lastName, 
+                                          player_contribution_summary$firstName, 
+                                          sep = ", ")
+
+team_names <- unique(player_contribution_summary$teamName)
+team_names <- data.frame(team_names)
+
+###############################################################################
+# Find each player's salary
+###############################################################################
+
+# Add salary
+salaries <- read_csv("Data/2019_salaries.csv")
+salaries$upper_case_team <- str_to_title(salaries$Team)
+
+# Correct for some team name differences
+salaries$upper_case_team <- ifelse(salaries$upper_case_team == "Goldenknights", 
+                                   "Golden Knights", salaries$upper_case_team)
+
+salaries$upper_case_team <- ifelse(salaries$upper_case_team == "Bluejackets", 
+                                   "Blue Jackets", salaries$upper_case_team)
+
+salaries$upper_case_team <- ifelse(salaries$upper_case_team == "Mapleleafs", 
+                                   "Maple Leafs", salaries$upper_case_team)
+
+salaries$upper_case_team <- ifelse(salaries$upper_case_team == "Redwings", 
+                                   "Red Wings", salaries$upper_case_team)
+
+salaries$player_team <- paste(salaries$Name, salaries$upper_case_team, sep= ", ")
+
+player_contribution_summary$player_team <- paste(player_contribution_summary$Name, 
+                                                 player_contribution_summary$teamName, sep= ", ")
+
+salaries_short <- salaries[,c(5,3)]
+
+
+
+################################################################################
+# MERGE SALARIES TO PLAYER DATA
+
+setDT(salaries_short)
+setDT(player_contribution_summary) # convert to data.tables by reference
+
+salaries_player_details <- salaries_short[player_contribution_summary, 
+                                          mult = "first", on = "player_team", 
+                                          nomatch=0L]
+
+
+# Converting character salary to number
+salaries_player_details$numeric_salary <- 
+  as.numeric(gsub(",", "", (substr(salaries_player_details$Salary, 2, 
+                                   nchar(salaries_player_details$Salary)))))
+
+
+```
+
+```{r }
+
+###############################################################################
+# COMPUTING NEW PLAYER METRICS
+###############################################################################
+
+
+# Total points
+salaries_player_details$total_points <- salaries_player_details$goals_total + 
+  salaries_player_details$assists_total
+
+# Share of points as goals
+salaries_player_details$fraction_of_points_as_goals <- 
+  salaries_player_details$goals_total / salaries_player_details$total_points
+
+
+# Offense and defense per 60 minutes played
+salaries_player_details$exp_goals_created_per_60 <- 
+  salaries_player_details$total_exp_goals_created / 
+  (salaries_player_details$TOI/3600)
+
+salaries_player_details$exp_goals_given_per_60 <- 
+  salaries_player_details$total_exp_goals_given / 
+  (salaries_player_details$TOI/3600)
+
+
+# CLUTCH factor... total points / expected offense
+salaries_player_details$CONVERSION_total_points_over_expected <- 
+  salaries_player_details$total_points / 
+  salaries_player_details$total_exp_goals_created
+
+
+# Offense to defense ratio ... positive = creates more offense than defensive liabilities
+salaries_player_details$offensive_contribution_divided_by_defensive_liability <- 
+  salaries_player_details$total_exp_goals_created / 
+  salaries_player_details$total_exp_goals_given
+
+
+# Offense MINuS defense 
+salaries_player_details$offensive_contribution_MINUS_defensive_liability <- 
+  salaries_player_details$total_exp_goals_created - 
+  salaries_player_details$total_exp_goals_given
+
+
+# NET CONTRIBUTION PER 60
+salaries_player_details$net_contribution_per_60 <- 
+  salaries_player_details$offensive_contribution_MINUS_defensive_liability / 
+  (salaries_player_details$TOI/3600)
+
+
+# TOTAL POINTS PER 60
+salaries_player_details$total_points_per_60 <- 
+  salaries_player_details$total_points / (salaries_player_details$TOI/3600)
+
+
+# Share of offense generated on special teams
+salaries_player_details$share_of_offense_on_special_teams <- 
+  (salaries_player_details$total_exp_goals_created - 
+     salaries_player_details$EV_exp_goals_created)/
+  salaries_player_details$total_exp_goals_created
+
+
+# Share of ice time on special teams
+salaries_player_details$share_of_time_on_special_teams <- 
+  (salaries_player_details$TOI - salaries_player_details$EV_TOI)/
+  salaries_player_details$TOI
+
+salaries_player_details$share_of_time_on_PP <- 
+  (salaries_player_details$PP_TOI)/salaries_player_details$TOI
+
+salaries_player_details$share_of_time_on_SH <- 
+  (salaries_player_details$TOI - salaries_player_details$PP_TOI - 
+     salaries_player_details$EV_TOI)/salaries_player_details$TOI
+
+
+# Log points
+salaries_player_details$log_points <- 
+  log(salaries_player_details$total_points + 1)
+
+
+# Log hits
+salaries_player_details$log_hits <- 
+  log(salaries_player_details$hits_total + 1)
+
+
+# Age
+salaries_player_details$age <- 
+  2020 - as.numeric(substr(salaries_player_details$birthDate,1,4))
+
+
+```
+
+
+```{r }
+
+
+###############################################################################
+# Adjust fraction metrics that create NA or INF 
+###############################################################################
+
+salaries_player_details$fraction_of_points_as_goals <- 
+  ifelse(is.na(salaries_player_details$fraction_of_points_as_goals), 0,
+              salaries_player_details$fraction_of_points_as_goals)
+
+
+salaries_player_details$offensive_contribution_divided_by_defensive_liability <- ifelse(is.infinite(salaries_player_details$offensive_contribution_divided_by_defensive_liability), 1,
+                salaries_player_details$offensive_contribution_divided_by_defensive_liability)
+
+
+###############################################################################
+# Remove non regular players
+###############################################################################
+
+# Keep only regular player
+salaries_player_details_regular_players <- salaries_player_details[salaries_player_details$games>10,]
+
+
+###############################################################################
+# Scale data (to obtain z-scores on quantitative metrics)
+###############################################################################
+
+scaled_data <- scale(salaries_player_details_regular_players[,c(11:23,27:43)])
+colnames(scaled_data) <- 
+  c("TOI_scaled","EV_TOI_scaled", "PP_TOI_scaled", "goals_total_scaled",
+    "assists_total_scaled", "shots_total_scaled", "hits_total_scaled",
+    "goals_assigned_scaled","goals_prevented_scaled", 
+    "total_goals_assigned_and_prevented_scaled", "total_exp_goals_created_scaled",
+    "EV_exp_goals_created_scaled", "total_exp_goals_given_scaled","numeric_salary_scaled",
+    "total_points_scaled", "fraction_of_points_as_goals_scaled","exp_goals_created_per_60_scaled", 
+    "exp_goals_given_per_60_scaled", "CONVERSION_total_points_over_expected_scaled", 
+    "offensive_contribution_divided_by_defensive_liability_scaled",
+    "offensive_contribution_MINUS_defensive_liability_scaled", 
+    "net_contribution_per_60_scaled", "total_points_per_60_scaled", 
+    "share_of_offense_on_special_teams_scaled", "share_of_time_on_special_teams_scaled",
+    "share_of_time_on_PP_scaled", "share_of_time_on_SH_scaled", "log_points_scaled",                                           
+    "log_hits_scaled", "age_scaled")
+
+salaries_player_details_regular_players <- 
+  cbind(salaries_player_details_regular_players, scaled_data)
+
+
+
+```
+
+
+```{r }
+
+###############################################################################
+# Create player segments/CLUSTERS
+###############################################################################
+
+skater_dimensions <- salaries_player_details_regular_players
+
+###############################################################################
+# Adding new player dimensions based on calculated metrics
+
+# Age
+skater_dimensions$age_dimension <- 
+  ifelse(skater_dimensions$age_scaled>0, "Veteran","Young")
+
+# Hits
+skater_dimensions$physical_dimension <- 
+  ifelse(skater_dimensions$hits_total_scaled>0, ", Physical",", Minimal physicality")
+
+# Position
+skater_dimensions$position_dimension <- 
+  ifelse(skater_dimensions$primaryPosition=="D", ",D-man",",O-man")
+
+# Offensive production (expect goals per 60 minutes)
+skater_dimensions$offensive_dimension <- 
+  ifelse(skater_dimensions$exp_goals_created_per_60_scaled>0, 
+         ", Offensive minded",", Non offensive minded")
+
+# EXP off/ EXP goals given
+skater_dimensions$net_off_def_dimension <- 
+  ifelse(skater_dimensions$offensive_contribution_divided_by_defensive_liability>1, 
+         ", Net positive all-around",", Net negative all around")
+
+# Hybrid - ONLY TOP 25% OFFENSIVE TALENT OF NET POSITIVE CONTRIBUTORS
+skater_dimensions$offensive_dimension_for_net_contributors <- 
+  ifelse(skater_dimensions$offensive_contribution_divided_by_defensive_liability>1 &
+         skater_dimensions$exp_goals_created_per_60_scaled>0.75, ", Offensive threat","")
+
+###############################################################################
+# Clustering based on different dimensions 
+skater_dimensions$final_dimension <- 
+  paste(skater_dimensions$age_dimension, skater_dimensions$physical_dimension,
+       skater_dimensions$position_dimension, skater_dimensions$offensive_dimension, 
+       skater_dimensions$net_off_def_dimension)
+
+skater_dimensions$final_dimension2 <- 
+  paste(skater_dimensions$age_dimension, skater_dimensions$physical_dimension,
+                   skater_dimensions$position_dimension,  
+                   skater_dimensions$net_off_def_dimension, 
+                   skater_dimensions$offensive_dimension_for_net_contributors)
+
+
+
+```
+
+
+
+```{r, message = FALSE }
+
+###############################################################################
+# CLUSTER PROFILING: Create SUMMARIES BASED ON CLUSTERS
+###############################################################################
+
+# Less granular
+skater_dimensions_summary <- skater_dimensions %>%
+  group_by(final_dimension) %>%
+  summarise(player_count = n(), mean_salary = mean(numeric_salary), mean_age = mean(age),
+            mean_hits = mean(hits_total), mean_goals = mean(goals_total), 
+            mean_assists = mean(assists_total),
+            mean_exp_goal_created_per60 = mean(exp_goals_created_per_60),
+            mean_exp_goal_given_per60 = mean(exp_goals_given_per_60))
+
+
+
+# More granular
+skater_dimensions_summary <- skater_dimensions %>%
+  group_by(final_dimension2) %>%
+  summarise(player_count = n(), mean_salary = mean(numeric_salary), mean_age = mean(age),
+            mean_hits = mean(hits_total), mean_goals = mean(goals_total), 
+            mean_assists = mean(assists_total),
+            mean_exp_goal_created_per60 = mean(exp_goals_created_per_60),
+            mean_exp_goal_given_per60 = mean(exp_goals_given_per_60))
+
+
+
+# More granular - scaled
+skater_dimensions_summary2 <- skater_dimensions %>%
+  group_by(final_dimension2) %>%
+  summarise(player_count = n(), mean_salary = mean(numeric_salary), 
+            min_hits = min(hits_total_scaled), mean_hits = mean(hits_total_scaled), 
+            max_hits = max(hits_total_scaled), min_goals = min(goals_total_scaled), 
+            mean_goals = mean(goals_total_scaled), max_goals = max(goals_total_scaled), 
+            min_assists = min(assists_total_scaled), mean_assists = mean(assists_total_scaled), 
+            max_assists = max(assists_total_scaled),
+            min_exp_goal_net_per_60 = min(net_contribution_per_60_scaled), 
+            min_exp_goal_net_per_60 = mean(net_contribution_per_60_scaled),
+            max_exp_goal_net_per_60 = max(net_contribution_per_60_scaled))
+
+
+
+```
+
+
+```{r }
+
+###############################################################################
+# DETERMINE PLAYER FAIR SALARY BASED ON CLUSTER
+###############################################################################
+
+skater_dimensions <- merge(skater_dimensions,skater_dimensions_summary2, 
+                           by = "final_dimension2")
+
+skater_dimensions$dimesion_shortened <- 
+  paste(skater_dimensions$position_dimension, skater_dimensions$net_off_def_dimension, 
+        skater_dimensions$offensive_dimension_for_net_contributors)
+
+# Determine if player is over/underpaid
+skater_dimensions$overpaid <- 
+  ifelse(skater_dimensions$numeric_salary > skater_dimensions$mean_salary, 1,0)
+
+skater_dimensions$underpaid <- 
+  ifelse(skater_dimensions$numeric_salary < skater_dimensions$mean_salary, 1,0)
+
+# Difference between current salary and fair salary
+skater_dimensions$delta_salary_actual_min_exp <- 
+  (skater_dimensions$numeric_salary - skater_dimensions$mean_salary)
+
+
+```
+
+
+```{r }
+
+# write_csv(skater_dimensions, "player_contribution_summary.csv")
+
+```
+
+
+
+```{r getlabels}
+labs = knitr::all_labels()
+labs = labs[!labs %in% c("setup","getlabels", "allcode")]
+```
+
+```{r allcode,ref.label=labs,eval=FALSE,echo=TRUE}
+```
+
+
