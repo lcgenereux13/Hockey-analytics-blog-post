@@ -15,15 +15,6 @@ GMs are often retired players, who rely more on subjective reports from a vast n
 * Developed a framework to assess General Managers' effectiveness based on tendencies to over/under pay players relative to their contribution
 
 
-# Repository structure
+# Notes on data sources
 
-|—	Written report
-
-|—	README.md
-
-|	    |—	Data
-
-|	    |—	Plots_and_figures
-
-|	    |—	Code
-
+While we built python scripts for scraping of NHL game-sheets, we chose to use data tables gathered from https://www.kaggle.com/martinellis/nhl-game-data for this exercise to respect NHL rules.
